@@ -319,22 +319,26 @@ describe("PHASE 4 — TESTS LOGIQUES COMPLETS", () => {
   // TEST 10 — AUTHENTICATION & RBAC
   describe("TEST 10 — AUTHENTICATION & ROLES", () => {
     it("verifies Bearer token and enforces role-based access", () => {
+      const adminKey = process.env.ADMIN_API_KEY || "fcf_live_adm_5873bc4e1163e4c99d13f3302117a2747f1311c96c98fb69";
+      const gptKey = process.env.GPT_API_KEY || "fcf_live_prod_5d94f1195da6fa33e9eda9643dcb1b2d0a80f1a613b3db1c";
+      const roKey = process.env.GPT_READONLY_KEY || "fcf_live_ro_625eca9fabe91c96bd142e077765da1b542a50ee4eb295f1";
+
       const reqAdmin = new NextRequest("http://localhost:3000/api/v1/episodes", {
-        headers: { authorization: "Bearer fcf_live_admin_secret_key_9999" },
+        headers: { authorization: `Bearer ${adminKey}` },
       });
       const authAdmin = verifyAuth(reqAdmin, "ADMIN");
       expect(authAdmin.isAuthenticated).toBe(true);
       expect(authAdmin.role).toBe("ADMIN");
 
       const reqGptWrite = new NextRequest("http://localhost:3000/api/v1/episodes", {
-        headers: { authorization: "Bearer fcf_live_gpt_prod_secret_key_8923" },
+        headers: { authorization: `Bearer ${gptKey}` },
       });
       const authGptWrite = verifyAuth(reqGptWrite, "WRITE");
       expect(authGptWrite.isAuthenticated).toBe(true);
       expect(authGptWrite.role).toBe("GPT_PRODUCTION");
 
       const reqReadonly = new NextRequest("http://localhost:3000/api/v1/episodes", {
-        headers: { authorization: "Bearer fcf_live_gpt_readonly_key_1042" },
+        headers: { authorization: `Bearer ${roKey}` },
       });
       const authReadonlyForWrite = verifyAuth(reqReadonly, "WRITE");
       expect(authReadonlyForWrite.isAuthenticated).toBe(false); // Readonly cannot write

@@ -1,0 +1,529 @@
+openapi: 3.1.0
+info:
+  title: Flow Content Factory REST API
+  description: >-
+    Centralized persistent production memory and management API for Speak English With Flow.
+    Enables Custom GPT agents, automated production pipelines, and human creators to interact with
+    the editorial planning, script versions, duration, metadata, assets, and audit timeline.
+  version: 2.0.0
+  contact:
+    name: Speak English With Flow Engineering
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local Development Server
+  - url: https://flow-content-factory.vercel.app/api/v1
+    description: Production Server
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /production:
+    get:
+      summary: Get Overall Production Metrics and Stats
+      description: Returns production KPIs (total, in progress, waiting, completed, duration) and recent events.
+      operationId: getProductionOverview
+      responses:
+        '200':
+          description: Production statistics retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /production/next:
+    get:
+      summary: Deterministically Get the Next Episode to Produce
+      description: >-
+        Identifies the next episode to produce based on editorial chronological order and stage statuses,
+        without hallucinations. Returns the full context needed for production.
+      operationId: getNextEpisode
+      responses:
+        '200':
+          description: Next episode found or all completed message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /episodes:
+    get:
+      summary: List and Filter Planning Episodes
+      operationId: listEpisodes
+      parameters:
+        - name: playlist
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of episodes with current status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /episodes/search:
+    get:
+      summary: Multi-criteria Episode Search
+      operationId: searchEpisodes
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: playlist
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matching episodes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+
+  /episodes/{code}:
+    get:
+      summary: Get Episode Details by Code or Global ID
+      operationId: getEpisode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          example: B1-B2_01
+      responses:
+        '200':
+          description: Episode details.
+        '404':
+          description: Episode not found.
+    patch:
+      summary: Update Episode Editorial Fields
+      operationId: updateEpisode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EpisodeUpdatePayload'
+      responses:
+        '200':
+          description: Episode updated.
+        '409':
+          description: Conflict (Optimistic Lock).
+
+  /episodes/{code}/context:
+    get:
+      summary: Get Full Editorial Memory Context for GPT
+      description: >-
+        Crucial endpoint returning full structured memory: identity, briefs, scripts, metadata,
+        durations, and audit logs. Allows agents to work on an episode or get inspired by reference episodes.
+      operationId: getEpisodeContext
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+          example: B1-B2_01
+      responses:
+        '200':
+          description: Complete episode context.
+        '404':
+          description: Episode not found.
+
+  /episodes/{code}/scripts:
+    get:
+      summary: Get All Script Versions for Episode
+      operationId: getScriptVersions
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Script versions history.
+    post:
+      summary: Create a New Script Version (Immutable)
+      operationId: createScriptVersion
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScriptCreatePayload'
+      responses:
+        '201':
+          description: New script version created.
+
+  /episodes/{code}/metadata:
+    get:
+      summary: Get Episode Metadata
+      operationId: getEpisodeMetadata
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Metadata object.
+    post:
+      summary: Update 3 Title Proposals, Tags, Chapters, and Description
+      operationId: updateEpisodeMetadata
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataUpdatePayload'
+      responses:
+        '200':
+          description: Metadata saved.
+
+  /episodes/{code}/production:
+    patch:
+      summary: Update Production Step Statuses and Duration
+      operationId: updateProductionState
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductionUpdatePayload'
+      responses:
+        '200':
+          description: Production state updated.
+
+  /episodes/{code}/status:
+    patch:
+      summary: Controlled Status Transition
+      operationId: updateStatus
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusUpdatePayload'
+      responses:
+        '200':
+          description: Status transition applied.
+        '422':
+          description: Invalid status transition.
+
+  /episodes/{code}/assets:
+    get:
+      summary: List Episode Assets (Thumbnails A/B/C, Audio)
+      operationId: getEpisodeAssets
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Asset list.
+    post:
+      summary: Add New Asset to Episode
+      operationId: createAsset
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetCreatePayload'
+      responses:
+        '201':
+          description: Asset attached.
+
+  /planning/extend:
+    post:
+      summary: Extend Planning with New Episodes
+      operationId: extendPlanning
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlanningExtendPayload'
+      responses:
+        '201':
+          description: Planning extended.
+
+  /csv/import:
+    post:
+      summary: Import and Diff CSV Planning File
+      operationId: importCsv
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                csvContent:
+                  type: string
+                action:
+                  type: string
+                  enum: [preview, confirm]
+                  default: preview
+      responses:
+        '200':
+          description: Diff preview or confirmation result.
+
+  /csv/export:
+    get:
+      summary: Deterministically Export Full Planning CSV
+      operationId: exportCsv
+      responses:
+        '200':
+          description: CSV file download.
+          content:
+            text/csv:
+              schema:
+                type: string
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+        meta:
+          type: object
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    EpisodeUpdatePayload:
+      type: object
+      properties:
+        title:
+          type: string
+        conceptPlaylist:
+          type: string
+        thumbnailText:
+          type: string
+        thumbnailVisual:
+          type: string
+        hook:
+          type: string
+        keywords:
+          type: string
+        description:
+          type: string
+        expectedUpdatedAt:
+          type: string
+
+    ScriptCreatePayload:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+        status:
+          type: string
+          enum: [DRAFT, REVIEW, APPROVED, FINAL, ARCHIVED]
+          default: DRAFT
+        createdBy:
+          type: string
+          default: GPT
+        notes:
+          type: string
+
+    MetadataUpdatePayload:
+      type: object
+      properties:
+        titleOption1:
+          type: string
+        titleOption2:
+          type: string
+        titleOption3:
+          type: string
+        selectedTitle:
+          type: string
+        description:
+          type: string
+        chapters:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+              seconds:
+                type: integer
+              title:
+                type: string
+        tags:
+          type: array
+          items:
+            type: string
+        playlist:
+          type: string
+
+    ProductionUpdatePayload:
+      type: object
+      properties:
+        planningStatus:
+          type: string
+        scriptStatus:
+          type: string
+        audioStatus:
+          type: string
+        metadataStatus:
+          type: string
+        thumbnailStatus:
+          type: string
+        publicationStatus:
+          type: string
+        durationSeconds:
+          type: integer
+        durationInput:
+          type: string
+          example: "23:18"
+
+    StatusUpdatePayload:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [NOT_STARTED, IN_PROGRESS, WAITING_USER, READY, APPROVED, COMPLETED, BLOCKED]
+        step:
+          type: string
+          default: overall
+        actor:
+          type: string
+          default: GPT
+        reason:
+          type: string
+
+    AssetCreatePayload:
+      type: object
+      required:
+        - assetType
+        - filename
+        - blobUrl
+      properties:
+        assetType:
+          type: string
+          enum: [SCRIPT, AUDIO, THUMBNAIL, IMAGE, VIDEO, SUBTITLE, OTHER]
+        filename:
+          type: string
+        blobUrl:
+          type: string
+        variant:
+          type: string
+          example: "A"
+        version:
+          type: integer
+          default: 1
+        isPrimary:
+          type: boolean
+          default: false
+
+    PlanningExtendPayload:
+      type: object
+      required:
+        - episodes
+      properties:
+        episodes:
+          type: array
+          items:
+            type: object
+            required:
+              - codeSerie
+              - title
+              - conceptPlaylist
+            properties:
+              codeSerie:
+                type: string
+              title:
+                type: string
+              conceptPlaylist:
+                type: string
+              thumbnailText:
+                type: string
+              thumbnailVisual:
+                type: string
+              hook:
+                type: string
+              keywords:
+                type: string
+              description:
+                type: string

@@ -99,17 +99,15 @@ export interface CompleteEpisodeData {
   events: ProductionEventEntity[];
 }
 
-// In-Memory & Local JSON Store
 class DataStore {
   private episodes: Map<string, EpisodeEntity> = new Map();
-  private production: Map<string, ProductionEntity> = new Map(); // key: episodeId
-  private scripts: Map<string, ScriptVersionEntity[]> = new Map(); // key: episodeId
-  private metadata: Map<string, MetadataEntity> = new Map(); // key: episodeId
-  private assets: Map<string, AssetEntity[]> = new Map(); // key: episodeId
+  private production: Map<string, ProductionEntity> = new Map();
+  private scripts: Map<string, ScriptVersionEntity[]> = new Map();
+  private metadata: Map<string, MetadataEntity> = new Map();
+  private assets: Map<string, AssetEntity[]> = new Map();
   private events: ProductionEventEntity[] = [];
 
   private storageFile = path.resolve(process.cwd(), ".data_store.json");
-  private initialized = false;
 
   constructor() {
     this.loadFromDisk();
@@ -120,7 +118,7 @@ class DataStore {
       if (fs.existsSync(this.storageFile)) {
         const raw = fs.readFileSync(this.storageFile, "utf-8");
         const data = JSON.parse(raw);
-        if (data.episodes && Array.isArray(data.episodes)) {
+        if (data.episodes && Array.isArray(data.episodes) && data.episodes.length > 0) {
           data.episodes.forEach((ep: EpisodeEntity) => this.episodes.set(ep.id, ep));
           data.production?.forEach((p: ProductionEntity) => this.production.set(p.episodeId, p));
           data.scripts?.forEach((s: ScriptVersionEntity) => {
@@ -135,12 +133,11 @@ class DataStore {
             this.assets.set(a.episodeId, list);
           });
           this.events = data.events || [];
-          this.initialized = true;
           return;
         }
       }
     } catch {
-      // Ignore reading error and initialize defaults
+      // Fallback
     }
 
     this.seedDefaultData();
@@ -169,15 +166,22 @@ class DataStore {
     }
   }
 
-  private seedDefaultData() {
+  public seedDefaultData() {
     const raw45 = generateFull45Episodes();
     const now = new Date().toISOString();
+
+    this.episodes.clear();
+    this.production.clear();
+    this.scripts.clear();
+    this.metadata.clear();
+    this.assets.clear();
+    this.events = [];
 
     for (let i = 0; i < raw45.length; i++) {
       const row = raw45[i];
       const epId = `ep_${(i + 1).toString().padStart(3, "0")}`;
-      
       const epNumber = i + 1;
+
       const episode: EpisodeEntity = {
         id: epId,
         globalId: row["ID Global"],
@@ -196,8 +200,6 @@ class DataStore {
 
       this.episodes.set(epId, episode);
 
-      // Seed production states
-      // Let's mark EP01 as COMPLETED, EP02 as APPROVED, EP03 as IN_PROGRESS to demonstrate live states
       let planStatus: ProductionStatus = "NOT_STARTED";
       let scriptStatus: ProductionStatus = "NOT_STARTED";
       let audioStatus: ProductionStatus = "NOT_STARTED";
@@ -213,7 +215,7 @@ class DataStore {
         metaStatus = "COMPLETED";
         thumbStatus = "COMPLETED";
         pubStatus = "COMPLETED";
-        durSecs = 1398; // 23:18
+        durSecs = 1398;
       } else if (i === 1) {
         planStatus = "IN_PROGRESS";
         scriptStatus = "APPROVED";
@@ -221,11 +223,10 @@ class DataStore {
         metaStatus = "IN_PROGRESS";
         thumbStatus = "IN_PROGRESS";
         pubStatus = "IN_PROGRESS";
-        durSecs = 1145; // 19:05
+        durSecs = 1145;
       } else if (i === 2) {
         planStatus = "IN_PROGRESS";
         scriptStatus = "IN_PROGRESS";
-        durSecs = 0;
       }
 
       const prod: ProductionEntity = {
@@ -246,13 +247,12 @@ class DataStore {
       };
       this.production.set(epId, prod);
 
-      // Seed initial script for EP01 & EP02
       if (i < 3) {
         const sampleScript = `Speaker 1: Hello and welcome back to Speak English With Flow!
 Speaker 2: It's wonderful to be here today for episode ${episode.codeSerie}.
-Speaker 1: Today, we are breaking down "${episode.title}".
-Speaker 2: Exactly. Many intermediate learners struggle with hesitation, but with the right practical mindset, fluency becomes effortless.
-Speaker 1: Let's jump straight into our first practical conversation drill!`;
+Speaker 1: Today, we are discussing "${episode.title}".
+Speaker 2: Exactly. Let's break down practical conversational fluency together!
+Speaker 1: Let's begin with our first active listening exercise!`;
 
         const scriptVer: ScriptVersionEntity = {
           id: `script_${epId}_v1`,
@@ -265,7 +265,7 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
           characterCount: sampleScript.length,
           estimatedDurationSeconds: Math.floor(sampleScript.split(/\s+/).length / 2.5),
           createdBy: "GPT",
-          notes: "Initial draft and structure reviewed.",
+          notes: "Initial structure with Maya & Leo.",
           createdAt: now,
         };
         this.scripts.set(epId, [scriptVer]);
@@ -273,12 +273,11 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
         this.scripts.set(epId, []);
       }
 
-      // Seed Metadata
       const meta: MetadataEntity = {
         id: `meta_${epId}`,
         episodeId: epId,
         titleOption1: episode.title,
-        titleOption2: `Mastering ${episode.conceptPlaylist}: ${episode.codeSerie} Deep Dive`,
+        titleOption2: `Master ${episode.conceptPlaylist}: ${episode.codeSerie} Deep Dive`,
         titleOption3: `How to Speak Natural English: ${episode.title}`,
         selectedTitle: episode.title,
         description: episode.description,
@@ -295,7 +294,6 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
       };
       this.metadata.set(epId, meta);
 
-      // Seed Assets (Thumbnails A, B, C)
       const assetList: AssetEntity[] = [
         {
           id: `asset_${epId}_thumb_a`,
@@ -357,22 +355,18 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
       this.assets.set(epId, assetList);
     }
 
-    // Initial audit event
     this.events.push({
       id: `evt_init`,
       episodeId: null,
       eventType: "CSV_IMPORTED",
       actorType: "SYSTEM",
-      description: "Initial 45 editorial episodes successfully populated into persistent store.",
+      description: "Official 45 editorial planning episodes populated into persistent store.",
       metadataJson: { count: 45 },
       createdAt: now,
     });
 
     this.saveToDisk();
-    this.initialized = true;
   }
-
-  // --- Episode Queries & Mutations ---
 
   public getAllEpisodes(): Array<{
     episode: EpisodeEntity;
@@ -405,15 +399,20 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
   public findEpisodeByCodeOrGlobalId(identifier: string): CompleteEpisodeData | null {
     if (!identifier) return null;
     const clean = identifier.trim().toLowerCase();
+    const cleanNoHash = clean.replace("#", "");
 
     let foundEp: EpisodeEntity | undefined;
     for (const ep of this.episodes.values()) {
+      const gClean = ep.globalId.toLowerCase();
+      const gNoHash = gClean.replace("#", "");
+
       if (
         ep.codeSerie.toLowerCase() === clean ||
-        ep.globalId.toLowerCase() === clean ||
+        gClean === clean ||
+        gNoHash === cleanNoHash ||
         ep.id.toLowerCase() === clean ||
-        `ep${ep.globalId}`.toLowerCase() === clean ||
-        `ep${ep.episodeNumber}`.toLowerCase() === clean
+        `ep${ep.episodeNumber}`.toLowerCase() === cleanNoHash ||
+        `ep#${ep.episodeNumber}`.toLowerCase() === clean
       ) {
         foundEp = ep;
         break;
@@ -502,7 +501,7 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
 
     const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
     const characterCount = content.length;
-    const estimatedDurationSeconds = Math.round(wordCount / 2.5); // ~150 words/min
+    const estimatedDurationSeconds = Math.round(wordCount / 2.5);
 
     const script: ScriptVersionEntity = {
       id: `script_${episodeId}_v${nextVerNumber}`,
@@ -522,7 +521,6 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
     list.push(script);
     this.scripts.set(episodeId, list);
 
-    // Update production script status if needed
     const currentProd = this.production.get(episodeId);
     if (currentProd) {
       currentProd.scriptStatus = status === "FINAL" ? "COMPLETED" : status === "APPROVED" ? "APPROVED" : "IN_PROGRESS";
@@ -589,7 +587,6 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
     const list = this.assets.get(episodeId) || [];
     const now = new Date().toISOString();
 
-    // If marked as primary, unmark others of same type
     if (assetData.isPrimary) {
       list.forEach((a) => {
         if (a.assetType === assetData.assetType) {
@@ -648,24 +645,17 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
     const createdList: EpisodeEntity[] = [];
 
     const existingList = Array.from(this.episodes.values());
-    let maxGlobalNum = existingList.reduce((max, ep) => {
-      const parsed = parseInt(ep.globalId, 10);
-      return !isNaN(parsed) && parsed > max ? parsed : max;
-    }, 0);
-
     let maxEpNum = existingList.reduce((max, ep) => (ep.episodeNumber > max ? ep.episodeNumber : max), 0);
 
     for (const item of newEpisodes) {
-      maxGlobalNum++;
       maxEpNum++;
-
-      const globalId = item.globalId || maxGlobalNum.toString();
-      const epId = `ep_${maxGlobalNum.toString().padStart(3, "0")}`;
+      const globalId = item.globalId || `EP#${maxEpNum.toString().padStart(2, "0")}`;
+      const epId = `ep_${maxEpNum.toString().padStart(3, "0")}`;
 
       const ep: EpisodeEntity = {
         id: epId,
         globalId,
-        codeSerie: item.codeSerie || `EXT_${maxGlobalNum}`,
+        codeSerie: item.codeSerie || `EXT_${maxEpNum}`,
         episodeNumber: maxEpNum,
         title: item.title || "Untitled Episode",
         conceptPlaylist: item.conceptPlaylist || "General",
@@ -721,7 +711,6 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
     let createdCount = 0;
     let updatedCount = 0;
 
-    // Apply updates
     for (const item of itemsToUpdate) {
       const ep = this.episodes.get(item.id);
       if (ep) {
@@ -735,7 +724,6 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
       }
     }
 
-    // Apply creations
     const existingList = Array.from(this.episodes.values());
     let maxEpNum = existingList.reduce((max, ep) => (ep.episodeNumber > max ? ep.episodeNumber : max), 0);
 
@@ -744,7 +732,7 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
       const epId = `ep_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
       const ep: EpisodeEntity = {
         id: epId,
-        globalId: item.globalId || maxEpNum.toString(),
+        globalId: item.globalId || `EP#${maxEpNum.toString().padStart(2, "0")}`,
         codeSerie: item.codeSerie || `EP_${maxEpNum}`,
         episodeNumber: maxEpNum,
         title: item.title || "Untitled",
@@ -839,7 +827,6 @@ Speaker 1: Let's jump straight into our first practical conversation drill!`;
   }
 }
 
-// Global Singleton Store Instance
 declare global {
   var __FLOW_STORE__: DataStore | undefined;
 }

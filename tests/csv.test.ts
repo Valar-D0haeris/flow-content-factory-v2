@@ -31,7 +31,7 @@ describe("CSV Module (Parser, Diff, Exporter)", () => {
     expect(reParsed.errors.length).toBe(0);
     expect(reParsed.rows.length).toBe(45);
     expect(reParsed.rows[0]["Code Série"]).toBe("B1-B2_01");
-    expect(reParsed.rows[0]["ID Global"]).toBe("1");
+    expect(reParsed.rows[0]["ID Global"]).toBe(original45[0]["ID Global"]);
   });
 
   it("detects additions, modifications and unchanged rows in diff generator", () => {

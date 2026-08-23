@@ -31,6 +31,73 @@ paths:
         '503':
           description: Database degraded or unavailable.
 
+  /agent/health:
+    get:
+      summary: Agent Gateway Health Check
+      description: Returns health status for the Agent Gateway, Flow API, and database without exposing secrets.
+      operationId: getAgentGatewayHealth
+      responses:
+        '200':
+          description: Gateway and backing services healthy.
+        '401':
+          description: Unauthorized.
+
+  /agent/episodes/status:
+    get:
+      summary: Agent Gateway List of Episode Statuses
+      description: Returns real-time production status for all episodes for external agent consumption.
+      operationId: getAgentEpisodeStatuses
+      responses:
+        '200':
+          description: List of episode statuses.
+        '401':
+          description: Unauthorized.
+
+  /agent/episodes/{code}/status:
+    get:
+      summary: Agent Gateway Specific Episode Status
+      description: Returns status and stage details for a specific episode code or global ID.
+      operationId: getAgentEpisodeStatusByCode
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Episode status details.
+        '404':
+          description: Episode not found.
+
+  /agent/production/next:
+    get:
+      summary: Agent Gateway Deterministic Next Episode
+      description: Deterministically returns the next episode to produce with complete editorial and script context.
+      operationId: getAgentNextEpisode
+      responses:
+        '200':
+          description: Next episode package.
+        '401':
+          description: Unauthorized.
+
+  /agent/episodes/{code}/context:
+    get:
+      summary: Agent Gateway Episode Editorial Context
+      description: Full editorial memory, scripts, thumbnails, and metadata for GPT agents.
+      operationId: getAgentEpisodeContext
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Episode context package.
+        '404':
+          description: Episode not found.
+
   /episodes/status:
     get:
       summary: Lightweight List of Episode Statuses

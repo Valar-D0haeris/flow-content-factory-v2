@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore } from "@/db/store";
+import { repository } from "@/db/repository";
 import { verifyAuth } from "@/lib/auth/service";
 import { ApiResponse } from "@/lib/validation/schemas";
 import { formatSecondsToTime } from "@/lib/duration/duration";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const auth = verifyAuth(req, "READ");
@@ -12,34 +14,7 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status");
   const search = searchParams.get("search");
 
-  let list = dbStore.getAllEpisodes();
-
-  // Filters
-  if (playlist) {
-    list = list.filter((item) =>
-      item.episode.conceptPlaylist.toLowerCase().includes(playlist.toLowerCase())
-    );
-  }
-
-  if (status) {
-    list = list.filter(
-      (item) =>
-        item.production.planningStatus === status ||
-        item.production.scriptStatus === status ||
-        item.production.publicationStatus === status
-    );
-  }
-
-  if (search) {
-    const q = search.toLowerCase();
-    list = list.filter(
-      (item) =>
-        item.episode.title.toLowerCase().includes(q) ||
-        item.episode.codeSerie.toLowerCase().includes(q) ||
-        item.episode.globalId.toLowerCase().includes(q) ||
-        (item.episode.keywords && item.episode.keywords.toLowerCase().includes(q))
-    );
-  }
+  const list = await repository.getAllEpisodes({ playlist, status, search });
 
   const response: ApiResponse = {
     success: true,
@@ -57,18 +32,34 @@ export async function GET(req: NextRequest) {
         keywords: item.episode.keywords,
         description: item.episode.description,
         production: item.production,
-        formattedDuration: formatSecondsToTime(item.production.durationSeconds),
+        formattedDuration: formatSecondsToTime(item.production.durationSeconds || 0),
         scriptsCount: item.scriptsCount,
         assetsCount: item.assetsCount,
-        updatedAt: item.episode.updatedAt,
+        updatedAt: item.episode.updatedAt ? new Date(item.episode.updatedAt).toISOString() : new Date().toISOString(),
       })),
       total: list.length,
     },
     meta: {
       filters: { playlist, status, search },
       role: auth.role,
+      source: "neon_postgresql",
     },
   };
 
-  return NextResponse.json(response);
+  return NextResponse.json(response, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+    },
+  });
 }

@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore } from "@/db/store";
+import { repository } from "@/db/repository";
 import { ApiResponse } from "@/lib/validation/schemas";
 import { formatSecondsToTime, formatSecondsToHuman } from "@/lib/duration/duration";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const data = dbStore.findEpisodeByCodeOrGlobalId(code);
+  const data = await repository.findEpisodeByCodeOrGlobalId(code);
 
   if (!data) {
     return NextResponse.json(
@@ -19,7 +21,7 @@ export async function GET(
           message: `Episode with code or ID "${code}" not found in Flow Content Factory memory.`,
         },
       } as ApiResponse,
-      { status: 404 }
+      { status: 404, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
@@ -55,9 +57,9 @@ export async function GET(
       metadataStatus: prod.metadataStatus,
       thumbnailStatus: prod.thumbnailStatus,
       publicationStatus: prod.publicationStatus,
-      durationSeconds: prod.durationSeconds,
-      formattedDuration: formatSecondsToTime(prod.durationSeconds),
-      humanDuration: formatSecondsToHuman(prod.durationSeconds),
+      durationSeconds: prod.durationSeconds || 0,
+      formattedDuration: formatSecondsToTime(prod.durationSeconds || 0),
+      humanDuration: formatSecondsToHuman(prod.durationSeconds || 0),
     },
     script: latestScript
       ? {
@@ -106,12 +108,27 @@ export async function GET(
     })),
   };
 
-  return NextResponse.json({
-    success: true,
-    data: contextPackage,
-    meta: {
-      purpose: "EDITORIAL_MEMORY_FOR_GPT_AND_PRODUCTION",
-      timestamp: new Date().toISOString(),
+  return NextResponse.json(
+    {
+      success: true,
+      data: contextPackage,
+      meta: {
+        purpose: "EDITORIAL_MEMORY_FOR_GPT_AND_PRODUCTION",
+        source: "neon_postgresql",
+        timestamp: new Date().toISOString(),
+      },
+    } as ApiResponse,
+    { headers: { "Access-Control-Allow-Origin": "*" } }
+  );
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
     },
-  } as ApiResponse);
+  });
 }

@@ -13,13 +13,14 @@ export interface UploadResult {
 }
 
 /**
- * Uploads a file buffer or string to Vercel Blob storage.
+ * Uploads a file buffer or string to Vercel Blob storage with explicit timeout.
  * Gracefully adapts between public and private Vercel Blob store configurations.
  */
 export async function uploadToBlob(
   filename: string,
   content: string | Buffer | Blob,
-  options: BlobUploadOptions = {}
+  options: BlobUploadOptions = {},
+  timeoutMs: number = 8000
 ): Promise<UploadResult> {
   const token = options.token || process.env.BLOB_READ_WRITE_TOKEN;
   if (!token) {
@@ -28,47 +29,86 @@ export async function uploadToBlob(
 
   const targetPath = options.folder ? `${options.folder}/${filename}` : filename;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    // Try public store mode first
-    const blob = await put(targetPath, content, {
-      access: "public",
-      token,
-      addRandomSuffix: true,
+    const uploadPromise = (async () => {
+      try {
+        // Try public store mode first
+        return await put(targetPath, content, {
+          access: "public",
+          token,
+          addRandomSuffix: true,
+        });
+      } catch (err: any) {
+        if (err.message && err.message.includes("private store")) {
+          // Fallback for private store configuration
+          return await put(targetPath, content, {
+            token,
+            addRandomSuffix: true,
+          } as any);
+        }
+        throw err;
+      }
+    })();
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener("abort", () => {
+        const timeoutError: any = new Error("External service did not respond within the configured timeout.");
+        timeoutError.code = "UPSTREAM_TIMEOUT";
+        reject(timeoutError);
+      });
     });
+
+    const blob = await Promise.race([uploadPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
+
     return {
       url: blob.url,
       pathname: blob.pathname,
       contentType: blob.contentType,
     };
   } catch (err: any) {
-    if (err.message && err.message.includes("private store")) {
-      // Fallback for private store configuration
-      const blob = await put(targetPath, content, {
-        token,
-        addRandomSuffix: true,
-      } as any);
-      return {
-        url: blob.url,
-        pathname: blob.pathname,
-        contentType: blob.contentType,
-      };
+    clearTimeout(timeoutId);
+    if (err.code === "UPSTREAM_TIMEOUT" || controller.signal.aborted) {
+      const error: any = new Error("External service did not respond within the configured timeout.");
+      error.code = "UPSTREAM_TIMEOUT";
+      throw error;
     }
     throw err;
   }
 }
 
 /**
- * Deletes a file from Vercel Blob storage.
+ * Deletes a file from Vercel Blob storage with explicit timeout.
  */
-export async function deleteFromBlob(url: string, token?: string): Promise<boolean> {
+export async function deleteFromBlob(
+  url: string,
+  token?: string,
+  timeoutMs: number = 5000
+): Promise<boolean> {
   const authToken = token || process.env.BLOB_READ_WRITE_TOKEN;
   if (!authToken) return false;
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    await del(url, { token: authToken });
+    const delPromise = del(url, { token: authToken });
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener("abort", () => {
+        reject(new Error("UPSTREAM_TIMEOUT"));
+      });
+    });
+
+    await Promise.race([delPromise, timeoutPromise]);
+    clearTimeout(timeoutId);
     return true;
   } catch (err) {
-    console.warn("Failed to delete blob:", err);
+    clearTimeout(timeoutId);
+    console.warn("Failed to delete blob or timed out:", err);
     return false;
   }
 }
+

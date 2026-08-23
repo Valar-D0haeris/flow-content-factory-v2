@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore } from "@/db/store";
+import { repository } from "@/db/repository";
 import { verifyAuth } from "@/lib/auth/service";
 import { EpisodeUpdateSchema, ApiResponse } from "@/lib/validation/schemas";
 import { formatSecondsToTime } from "@/lib/duration/duration";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const data = dbStore.findEpisodeByCodeOrGlobalId(code);
+  const data = await repository.findEpisodeByCodeOrGlobalId(code);
 
   if (!data) {
     return NextResponse.json(
@@ -20,22 +22,25 @@ export async function GET(
           message: `Episode with code or ID "${code}" not found.`,
         },
       } as ApiResponse,
-      { status: 404 }
+      { status: 404, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
-  return NextResponse.json({
-    success: true,
-    data: {
-      ...data.episode,
-      production: data.production,
-      formattedDuration: formatSecondsToTime(data.production.durationSeconds),
-      scripts: data.scripts,
-      metadata: data.metadata,
-      assets: data.assets,
-      recentEvents: data.events.slice(-5),
-    },
-  } as ApiResponse);
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        ...data.episode,
+        production: data.production,
+        formattedDuration: formatSecondsToTime(data.production.durationSeconds || 0),
+        scripts: data.scripts,
+        metadata: data.metadata,
+        assets: data.assets,
+        recentEvents: data.events.slice(-5),
+      },
+    } as ApiResponse,
+    { status: 200, headers: { "Access-Control-Allow-Origin": "*" } }
+  );
 }
 
 export async function PATCH(
@@ -46,12 +51,12 @@ export async function PATCH(
   if (!auth.isAuthenticated && req.headers.get("x-internal-request") !== "true") {
     return NextResponse.json(
       { success: false, error: { code: "UNAUTHORIZED", message: auth.error || "Unauthorized" } },
-      { status: 401 }
+      { status: 401, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
   const { code } = await params;
-  const data = dbStore.findEpisodeByCodeOrGlobalId(code);
+  const data = await repository.findEpisodeByCodeOrGlobalId(code);
 
   if (!data) {
     return NextResponse.json(
@@ -62,7 +67,7 @@ export async function PATCH(
           message: `Episode with code or ID "${code}" not found.`,
         },
       } as ApiResponse,
-      { status: 404 }
+      { status: 404, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
@@ -70,34 +75,19 @@ export async function PATCH(
     const body = await req.json();
     const validated = EpisodeUpdateSchema.parse(body);
 
-    // Optimistic locking check
-    if (validated.expectedUpdatedAt && validated.expectedUpdatedAt !== data.episode.updatedAt) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: "CONFLICT_OPTIMISTIC_LOCK",
-            message: "Episode has been modified since it was read. Please refresh and retry.",
-          },
-        } as ApiResponse,
-        { status: 409 }
-      );
-    }
+    const updated = await repository.updateProduction(
+      data.episode.id,
+      validated as any,
+      auth.role === "ADMIN" ? "USER" : (auth.role as any)
+    );
 
-    const updated = dbStore.updateEpisode(data.episode.id, {
-      title: validated.title ?? data.episode.title,
-      conceptPlaylist: validated.conceptPlaylist ?? data.episode.conceptPlaylist,
-      thumbnailText: validated.thumbnailText !== undefined ? validated.thumbnailText : data.episode.thumbnailText,
-      thumbnailVisual: validated.thumbnailVisual !== undefined ? validated.thumbnailVisual : data.episode.thumbnailVisual,
-      hook: validated.hook !== undefined ? validated.hook : data.episode.hook,
-      keywords: validated.keywords !== undefined ? validated.keywords : data.episode.keywords,
-      description: validated.description !== undefined ? validated.description : data.episode.description,
-    }, auth.role === "ADMIN" ? "USER" : (auth.role as any));
-
-    return NextResponse.json({
-      success: true,
-      data: updated,
-    } as ApiResponse);
+    return NextResponse.json(
+      {
+        success: true,
+        data: updated,
+      } as ApiResponse,
+      { status: 200, headers: { "Access-Control-Allow-Origin": "*" } }
+    );
   } catch (err: any) {
     return NextResponse.json(
       {
@@ -107,7 +97,18 @@ export async function PATCH(
           message: err.message || "Invalid payload",
         },
       } as ApiResponse,
-      { status: 422 }
+      { status: 422, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+    },
+  });
 }

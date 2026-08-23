@@ -108,61 +108,80 @@ class DataStore {
   private events: ProductionEventEntity[] = [];
 
   private storageFile = path.resolve(process.cwd(), ".data_store.json");
+  private tmpStorageFile = path.resolve("/tmp", ".data_store.json");
 
   constructor() {
     this.loadFromDisk();
   }
 
   private loadFromDisk() {
-    try {
-      if (fs.existsSync(this.storageFile)) {
-        const raw = fs.readFileSync(this.storageFile, "utf-8");
-        const data = JSON.parse(raw);
-        if (data.episodes && Array.isArray(data.episodes) && data.episodes.length > 0) {
-          data.episodes.forEach((ep: EpisodeEntity) => this.episodes.set(ep.id, ep));
-          data.production?.forEach((p: ProductionEntity) => this.production.set(p.episodeId, p));
-          data.scripts?.forEach((s: ScriptVersionEntity) => {
-            const list = this.scripts.get(s.episodeId) || [];
-            list.push(s);
-            this.scripts.set(s.episodeId, list);
-          });
-          data.metadata?.forEach((m: MetadataEntity) => this.metadata.set(m.episodeId, m));
-          data.assets?.forEach((a: AssetEntity) => {
-            const list = this.assets.get(a.episodeId) || [];
-            list.push(a);
-            this.assets.set(a.episodeId, list);
-          });
-          this.events = data.events || [];
-          return;
+    // Try primary project file first, then /tmp fallback
+    const candidateFiles = [this.storageFile, this.tmpStorageFile];
+
+    for (const filePath of candidateFiles) {
+      try {
+        if (fs.existsSync(filePath)) {
+          const raw = fs.readFileSync(filePath, "utf-8");
+          const data = JSON.parse(raw);
+          if (data.episodes && Array.isArray(data.episodes) && data.episodes.length > 0) {
+            this.episodes.clear();
+            this.production.clear();
+            this.scripts.clear();
+            this.metadata.clear();
+            this.assets.clear();
+
+            data.episodes.forEach((ep: EpisodeEntity) => this.episodes.set(ep.id, ep));
+            data.production?.forEach((p: ProductionEntity) => this.production.set(p.episodeId, p));
+            data.scripts?.forEach((s: ScriptVersionEntity) => {
+              const list = this.scripts.get(s.episodeId) || [];
+              list.push(s);
+              this.scripts.set(s.episodeId, list);
+            });
+            data.metadata?.forEach((m: MetadataEntity) => this.metadata.set(m.episodeId, m));
+            data.assets?.forEach((a: AssetEntity) => {
+              const list = this.assets.get(a.episodeId) || [];
+              list.push(a);
+              this.assets.set(a.episodeId, list);
+            });
+            this.events = data.events || [];
+            return;
+          }
         }
+      } catch {
+        // Fallback to next candidate or seed
       }
-    } catch {
-      // Fallback
     }
 
     this.seedDefaultData();
   }
 
   public saveToDisk() {
+    const allScripts: ScriptVersionEntity[] = [];
+    this.scripts.forEach((list) => allScripts.push(...list));
+
+    const allAssets: AssetEntity[] = [];
+    this.assets.forEach((list) => allAssets.push(...list));
+
+    const data = {
+      episodes: Array.from(this.episodes.values()),
+      production: Array.from(this.production.values()),
+      scripts: allScripts,
+      metadata: Array.from(this.metadata.values()),
+      assets: allAssets,
+      events: this.events,
+    };
+
+    const payload = JSON.stringify(data, null, 2);
+
     try {
-      const allScripts: ScriptVersionEntity[] = [];
-      this.scripts.forEach((list) => allScripts.push(...list));
-
-      const allAssets: AssetEntity[] = [];
-      this.assets.forEach((list) => allAssets.push(...list));
-
-      const data = {
-        episodes: Array.from(this.episodes.values()),
-        production: Array.from(this.production.values()),
-        scripts: allScripts,
-        metadata: Array.from(this.metadata.values()),
-        assets: allAssets,
-        events: this.events,
-      };
-
-      fs.writeFileSync(this.storageFile, JSON.stringify(data, null, 2), "utf-8");
-    } catch (err) {
-      console.warn("Unable to persist store to disk:", err);
+      fs.writeFileSync(this.storageFile, payload, "utf-8");
+    } catch {
+      // If project root is read-only (Serverless), write to /tmp
+      try {
+        fs.writeFileSync(this.tmpStorageFile, payload, "utf-8");
+      } catch {
+        // Silent in serverless memory-only context
+      }
     }
   }
 

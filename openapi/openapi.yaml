@@ -19,6 +19,29 @@ security:
   - ApiKeyAuth: []
 
 paths:
+  /health:
+    get:
+      summary: Health Check and Database Connectivity Status
+      description: Returns liveness status, database connection state, and API version without exposing secrets.
+      operationId: getHealthStatus
+      security: []
+      responses:
+        '200':
+          description: API and database healthy.
+        '503':
+          description: Database degraded or unavailable.
+
+  /episodes/status:
+    get:
+      summary: Lightweight List of Episode Statuses
+      description: Returns real-time production status for all episodes without heavy editorial payloads.
+      operationId: getEpisodeStatuses
+      responses:
+        '200':
+          description: List of episode statuses.
+        '401':
+          description: Missing or invalid API key.
+
   /production:
     get:
       summary: Get Overall Production Metrics and Stats

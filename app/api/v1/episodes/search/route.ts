@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore } from "@/db/store";
+import { repository } from "@/db/repository";
 import { ApiResponse } from "@/lib/validation/schemas";
 import { formatSecondsToTime } from "@/lib/duration/duration";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -10,39 +12,10 @@ export async function GET(req: NextRequest) {
   const playlist = searchParams.get("playlist")?.toLowerCase();
   const status = searchParams.get("status");
 
-  let list = dbStore.getAllEpisodes();
+  let list = await repository.getAllEpisodes({ playlist, status, search: q });
 
   if (code) {
     list = list.filter((item) => item.episode.codeSerie.toLowerCase().includes(code));
-  }
-
-  if (playlist) {
-    list = list.filter((item) => item.episode.conceptPlaylist.toLowerCase().includes(playlist));
-  }
-
-  if (status) {
-    list = list.filter(
-      (item) =>
-        item.production.planningStatus === status ||
-        item.production.scriptStatus === status ||
-        item.production.publicationStatus === status
-    );
-  }
-
-  if (q) {
-    list = list.filter((item) => {
-      const ep = item.episode;
-      return (
-        ep.title.toLowerCase().includes(q) ||
-        ep.codeSerie.toLowerCase().includes(q) ||
-        ep.globalId.toLowerCase().includes(q) ||
-        ep.conceptPlaylist.toLowerCase().includes(q) ||
-        (ep.hook && ep.hook.toLowerCase().includes(q)) ||
-        (ep.keywords && ep.keywords.toLowerCase().includes(q)) ||
-        (ep.description && ep.description.toLowerCase().includes(q)) ||
-        (ep.thumbnailText && ep.thumbnailText.toLowerCase().includes(q))
-      );
-    });
   }
 
   const response: ApiResponse = {
@@ -58,7 +31,7 @@ export async function GET(req: NextRequest) {
         hook: item.episode.hook,
         keywords: item.episode.keywords,
         production: item.production,
-        formattedDuration: formatSecondsToTime(item.production.durationSeconds),
+        formattedDuration: formatSecondsToTime(item.production.durationSeconds || 0),
       })),
       totalMatches: list.length,
     },
@@ -66,8 +39,24 @@ export async function GET(req: NextRequest) {
       query: q,
       code,
       playlist,
+      source: "neon_postgresql",
     },
   };
 
-  return NextResponse.json(response);
+  return NextResponse.json(response, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+    },
+  });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+    },
+  });
 }

@@ -1,32 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dbStore } from "@/db/store";
+import { repository } from "@/db/repository";
 import { verifyAuth } from "@/lib/auth/service";
 import { AssetCreateSchema, ApiResponse } from "@/lib/validation/schemas";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
   const { code } = await params;
-  const data = dbStore.findEpisodeByCodeOrGlobalId(code);
+  const data = await repository.findEpisodeByCodeOrGlobalId(code);
 
   if (!data) {
     return NextResponse.json(
       { success: false, error: { code: "EPISODE_NOT_FOUND", message: `Episode ${code} not found` } },
-      { status: 404 }
+      { status: 404, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
-  return NextResponse.json({
-    success: true,
-    data: {
-      episodeCode: data.episode.codeSerie,
-      assets: data.assets,
-      thumbnails: data.assets.filter((a) => a.assetType === "THUMBNAIL"),
-      audio: data.assets.filter((a) => a.assetType === "AUDIO"),
-      others: data.assets.filter((a) => a.assetType !== "THUMBNAIL" && a.assetType !== "AUDIO"),
-    },
-  } as ApiResponse);
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        episodeCode: data.episode.codeSerie,
+        assets: data.assets,
+        totalAssets: data.assets.length,
+      },
+    } as ApiResponse,
+    { status: 200, headers: { "Access-Control-Allow-Origin": "*" } }
+  );
 }
 
 export async function POST(
@@ -37,17 +40,17 @@ export async function POST(
   if (!auth.isAuthenticated && req.headers.get("x-internal-request") !== "true") {
     return NextResponse.json(
       { success: false, error: { code: "UNAUTHORIZED", message: auth.error || "Unauthorized" } },
-      { status: 401 }
+      { status: 401, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
   const { code } = await params;
-  const data = dbStore.findEpisodeByCodeOrGlobalId(code);
+  const data = await repository.findEpisodeByCodeOrGlobalId(code);
 
   if (!data) {
     return NextResponse.json(
       { success: false, error: { code: "EPISODE_NOT_FOUND", message: `Episode ${code} not found` } },
-      { status: 404 }
+      { status: 404, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
 
@@ -55,33 +58,33 @@ export async function POST(
     const body = await req.json();
     const validated = AssetCreateSchema.parse(body);
 
-    const asset = dbStore.addAsset(
-      data.episode.id,
-      {
-        episodeId: data.episode.id,
-        assetType: validated.assetType,
-        filename: validated.filename,
-        blobUrl: validated.blobUrl,
-        mimeType: validated.mimeType || null,
-        fileSize: validated.fileSize || null,
-        variant: validated.variant || null,
-        version: validated.version || 1,
-        isPrimary: validated.isPrimary || false,
-      },
-      validated.actor || (auth.role === "GPT_PRODUCTION" ? "GPT" : "USER")
-    );
+    const asset = await repository.addAsset(data.episode.id, {
+      ...validated,
+      actor: validated.actor || (auth.role === "GPT_PRODUCTION" ? "GPT" : "USER"),
+    });
 
     return NextResponse.json(
       {
         success: true,
         data: asset,
       } as ApiResponse,
-      { status: 201 }
+      { status: 201, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: { code: "VALIDATION_ERROR", message: err.message } },
-      { status: 422 }
+      { status: 422, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+    },
+  });
 }
